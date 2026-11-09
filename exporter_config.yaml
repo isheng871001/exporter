@@ -1,0 +1,113 @@
+device:
+  url: "https://{BMC_ip}/redfish/v1/getall"
+  name: ""
+  rack_name: "mRack"
+
+metrics:
+  liquid_cooling_valve_setting_celsius:
+    sensors:
+      - "VIN_S"
+      - "VOU_S"
+      - "VBR_S"
+      - "VPH_S"
+      - "P_FIN"
+      - "P_FOU"
+      - "PH"
+      - "Cond"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  chassis_ambient_environment_celsius:
+    sensors:
+      - "Ta"
+      - "DPT"
+      - "RH"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  power_meter_watts:
+    sensors:
+      - "POW_F{1~4}"
+      - "POW_R{1~4}"
+      - "POW_P{1~3}"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  power_meter_volts:
+    sensors:
+      - "VOL_F{1~4}"
+      - "VOL_R{1~4}"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  power_meter_amps:
+    sensors:
+      - "CUR_F{1~4}"
+      - "CUR_R{1~4}"
+      - "CUR_P{1~3}"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  power_meter_factors:
+    sensors:
+      - "PWF_F{1~4}"
+      - "PWF_R{1~4}"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  pump_PWM_values:
+    sensors:
+      - "PWM_P{1~3}"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  pump_RPM_values:
+    sensors:
+      - "RPM_P{1~3}"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  power_status_HAC:
+    sensors:
+      - "Sensor_H{1~7}{A,B}{1~3}_R"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  mrack_tank_level:
+    sensors:
+      - "Sensor_LEVH"
+      - "Sensor_LEVM"
+      - "Sensor_LEVL"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  mrack_leakage_sensor:
+    sensors:
+      - "Sensor_SSP_L"
+      - "Sensor_mR1_L"
+      - "Sensor_mR1H{1~7}_L"
+      - "Sensor_mR2_L"
+      - "Sensor_mR2H{1~7}_L"
+      - "Sensor_EB_L"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
+
+  mrack_BMC_status:
+    sensors:
+      - "BMC_CPU_Util"
+      - "BMC_Mem_Util"
+      - "PEER_BMC_Status"
+    labels:
+      sensor_name: "{sensor_name}"
+      rack_name: "{rack_name}"
