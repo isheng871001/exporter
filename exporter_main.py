@@ -236,7 +236,7 @@ def fetch_getall_data(device, sensor_to_gauge):
     logs = []
     ip = device["BMC_ip"]
     base_url = f"https://{ip}/redfish/v1/getall"
-    auth = HTTPBasicAuth(os.environ["MRACK_BMC_USERNAME"], os.environ["MRACK_BMC_PASSWORD"])
+    auth = HTTPBasicAuth("MRACK_BMC_USERNAME","MRACK_BMC_PASSWORD")
 
     device_entry = {
         "bmc_ip": ip,
@@ -336,5 +336,5 @@ if __name__ == '__main__':
 
     while True:
         alldata_snapshot = fetch_all_data()
-        write_sensor_snapshot(alldata_snapshot)
+#       write_sensor_snapshot(alldata_snapshot)
         time.sleep(SERVER_POLL_INTERVAL_SECONDS)
