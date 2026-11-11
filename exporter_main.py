@@ -268,13 +268,21 @@ def fetch_getall_data(device, sensor_to_gauge):
             logs.append(f"[SKIP] {ip} /getall invalid member: {item!r}")
             continue
 
-        sensor_name = item.get("Name")
+        sensor_name = item.get("Id")
         gauge = sensor_to_gauge.get(sensor_name)
         if gauge is None:
             continue
 
         received_sensor_names.add(sensor_name)
         sensor_value = item.get("Reading")
+
+        if sensor_name == "PEER_BMC_Status" and isinstance(sensor_value, str):
+            peer_status_values = {"00h": 0, "01h": 1, "02h": 2}
+            sensor_value = peer_status_values.get(sensor_value.strip().lower())
+            if sensor_value is None:
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+                continue
+
         if sensor_value is None:
             logs.append(f"[KEEP] {ip} {sensor_name} has no valid Reading; Gauge not updated")
             continue
