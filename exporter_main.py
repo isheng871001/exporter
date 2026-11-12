@@ -6,7 +6,6 @@ import requests
 import subprocess
 import yaml
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from requests.auth import HTTPBasicAuth
 from prometheus_client import Gauge
 from prometheus_client import start_http_server
@@ -48,11 +47,22 @@ def expand_sensor_pattern(pattern):
         expanded.extend(expand_sensor_pattern(replaced))
     return expanded
 
-config = load_config()
-device = config["device"]
-metric_configs = config["metrics"]
+def build_sensor_to_gauge(metric_configs):
+    """啟動時建一次反向表：Redfish Name -> Gauge 物件。"""
+    sensor_to_gauge = {}
+    for metric_name, metric_config in metric_configs.items():
+        if metric_name not in metric_gauges:
+            raise KeyError(f"YAML metric 沒有對應 Gauge: {metric_name}")
 
-# Prometheus metrics for various component temperatures
+        gauge = metric_gauges[metric_name]
+        for pattern in metric_config.get("sensors", []):
+            for sensor_name in expand_sensor_pattern(pattern):
+                if sensor_name in sensor_to_gauge and sensor_to_gauge[sensor_name] is not gauge:
+                    raise ValueError(f"sensor 重複被分配到不同 metric: {sensor_name}")
+                sensor_to_gauge[sensor_name] = gauge
+    return sensor_to_gauge
+
+# Prometheus metrics for mrack component temperatures
 valve_setting = Gauge(
     "liquid_cooling_valve_setting_celsius",
     "coolong valve setting",
@@ -119,8 +129,40 @@ BMC_status = Gauge(
     ["sensor_name", "rack_name"]
 )
 
+# Prometheus metrics for tCDU component temperatures
+tCDU_temperature = Gauge(
+    "tCDU_sensors_temperatures",
+    "sensors temperatures from tCDU",
+    ["sensor_name", "rack_name"]
+)
+
+tCDU_pressure = Gauge(
+    "tCDU_sensors_pressures",
+    "sensors pressures from tCDU",
+    ["sensor_name", "rack_name"]
+)
+
+tCDU_pump_metric = Gauge(
+    "tCDU_pump_metrics",
+    "sensors reading from tCDU pump",
+    ["sensor_name", "rack_name"]
+)
+
+tCDU_leakage_metric = Gauge(
+    "tCDU_leakage_metrics",
+    "sensors reading from tCDU leakage",
+    ["sensor_name", "rack_name"]
+)
+
+tCDU_sensor_metric = Gauge(
+    "tCDU_sensor_metrics",
+    "sensors reading from tCDU",
+    ["sensor_name", "rack_name"]
+)
+
 # Mapping sensor names to corresponding gauges
 metric_gauges = {
+    # mRack metrics
     "liquid_cooling_valve_setting_celsius": valve_setting,
     "chassis_ambient_environment_celsius": environment_setting,
     "power_meter_watts": power_meter_watts,
@@ -133,24 +175,23 @@ metric_gauges = {
     "mrack_tank_level": mrack_tank,
     "mrack_leakage_sensor": mrack_leakage,
     "mrack_BMC_status": BMC_status,
+
+    # tCDU metrics
+    "tCDU_sensors_temperatures": tCDU_temperature,
+    "tCDU_sensors_pressures": tCDU_pressure,
+    "tCDU_pump_metrics": tCDU_pump_metric,
+    "tCDU_leakage_metrics": tCDU_leakage_metric,
+    "tCDU_sensor_metrics": tCDU_sensor_metric,
 }
 
+config = load_config()
+mrack_device = config["devices"][0]
+tCDU_device = config["devices"][1]
+
+mrack_sensor_to_gauge = build_sensor_to_gauge(mrack_device["metrics"])
+tCDU_sensor_to_gauge = build_sensor_to_gauge(tCDU_device["metrics"])
+
 session = requests.Session()
-
-
-"""啟動時建一次反向表：Redfish Name -> Gauge 物件。"""
-sensor_to_gauge = {}
-for metric_name, metric_config in metric_configs.items():
-    if metric_name not in metric_gauges:
-        raise KeyError(f"YAML metric 沒有對應 Gauge: {metric_name}")
-
-    gauge = metric_gauges[metric_name]
-    for pattern in metric_config.get("sensors", []):
-        for sensor_name in expand_sensor_pattern(pattern):
-            if sensor_name in sensor_to_gauge and sensor_to_gauge[sensor_name] is not gauge:
-                raise ValueError(f"sensor 重複被分配到不同 metric: {sensor_name}")
-            sensor_to_gauge[sensor_name] = gauge
-
 
 # Track consecutive PSU and chassis status fetch failures to avoid immediately marking sensors as failed
 # status_failures = {}
@@ -219,10 +260,10 @@ EXPORTER_TIMEOUT_SECONDS = 15
 #                 )
 #     return _server_leakage_executor
 
-def fetch_all_data():
+def fetch_mrack_data():
     nodes_data = {}
 
-    device_entry, logs = fetch_getall_data(device, sensor_to_gauge)
+    device_entry, logs = fetch_mrack_getall_data(mrack_device, mrack_sensor_to_gauge)
 
     for message in logs:
         print(message)
@@ -231,12 +272,12 @@ def fetch_all_data():
 
     return nodes_data
 
-def fetch_getall_data(device, sensor_to_gauge):
+def fetch_mrack_getall_data(device, sensor_to_gauge):
     """單一 /getall 收集函式；回傳 snapshot data 和 logs list。"""
     logs = []
     ip = device["BMC_ip"]
-    base_url = f"https://{ip}/redfish/v1/getall"
-    auth = HTTPBasicAuth("MRACK_BMC_USERNAME","MRACK_BMC_PASSWORD")
+    base_url = f"https://{ip}/redfish/v1/Chassis/mRack/Sensors/getall"
+    auth = HTTPBasicAuth("","")
 
     device_entry = {
         "bmc_ip": ip,
@@ -271,12 +312,13 @@ def fetch_getall_data(device, sensor_to_gauge):
         sensor_name = item.get("Id")
         gauge = sensor_to_gauge.get(sensor_name)
         if gauge is None:
+            logs.append(f"[SKIP] {ip} {sensor_name} has no gauge")
             continue
 
         received_sensor_names.add(sensor_name)
         sensor_value = item.get("Reading")
 
-        if sensor_name == "PEER_BMC_Status" and isinstance(sensor_value, str):
+        if sensor_name == "Peer_BMC_Status" and isinstance(sensor_value, str):
             peer_status_values = {"00h": 0, "01h": 1, "02h": 2}
             sensor_value = peer_status_values.get(sensor_value.strip().lower())
             if sensor_value is None:
@@ -290,10 +332,85 @@ def fetch_getall_data(device, sensor_to_gauge):
             logs.append(f"[SKIP] {sensor_name} invalid value")
             continue
 
-        value = float(sensor_value)
-        device_entry["sensors"][sensor_name] = {"value": value}
-        gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(value)
-        logs.append(f"[OK] {ip} {sensor_name} = {value}")
+        device_entry["sensors"][sensor_name] = {"value": sensor_value}
+        gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+        logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+
+    # 找出本次成功回應中完全沒有出現的已設定 sensor；不呼叫 set()，Gauge 保留現值。
+    for sensor_name in sensor_to_gauge:
+        if sensor_name not in received_sensor_names:
+            logs.append(f"[KEEP] {ip} {sensor_name} missing from /getall response; Gauge not updated")
+
+    return device_entry, logs
+
+def fetch_tCDU_data():
+    tCDU_data = {}
+
+    device_entry, logs = fetch_tCDU_getall_data(tCDU_device, tCDU_sensor_to_gauge)
+
+    for message in logs:
+        print(message)
+
+    tCDU_data.update(device_entry.get("sensors", {}))
+
+    return tCDU_data
+
+def fetch_tCDU_getall_data(device, sensor_to_gauge):
+    """單一 /getall 收集函式；回傳 snapshot data 和 logs list。"""
+    logs = []
+    ip = device["BMC_ip"]
+    base_url = f"https://{ip}/redfish/v1/Chassis/CDU/Sensors/GetAll"
+    auth = HTTPBasicAuth("","")
+
+    device_entry = {
+        "bmc_ip": ip,
+        "sensors": {},
+    }
+
+    try:
+        response = session.get(
+            base_url,
+            headers={"Accept": "application/json"},
+            auth=auth,
+            verify=False,
+            timeout=EXPORTER_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        logs.append(f"[ERROR] {ip} tCDU /getall API error: {exc}")
+        return device_entry, logs
+
+    members = data.get("Members") if isinstance(data, dict) else None
+    if not isinstance(members, list):
+        logs.append(f"[ERROR] {ip} tCDU /getall response has no valid Members list")
+        return device_entry, logs
+
+    received_sensor_names = set()
+    for item in members:
+        if not isinstance(item, dict):
+            logs.append(f"[SKIP] {ip} /getall invalid member: {item!r}")
+            continue
+
+        sensor_name = item.get("Id")
+        gauge = sensor_to_gauge.get(sensor_name)
+        if gauge is None:
+            logs.append(f"[SKIP] {ip} {sensor_name} has no gauge")
+            continue
+
+        received_sensor_names.add(sensor_name)
+        sensor_value = item.get("Reading")
+
+        if sensor_value is None:
+            logs.append(f"[KEEP] {ip} {sensor_name} has no valid Reading; Gauge not updated")
+            continue
+        if not isinstance(sensor_value, (int, float)):
+            logs.append(f"[SKIP] {sensor_name} invalid value")
+            continue
+
+        device_entry["sensors"][sensor_name] = {"value": sensor_value}
+        gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+        logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
 
     # 找出本次成功回應中完全沒有出現的已設定 sensor；不呼叫 set()，Gauge 保留現值。
     for sensor_name in sensor_to_gauge:
@@ -335,6 +452,7 @@ if __name__ == '__main__':
 #    leakage_thread.start()
 
     while True:
-        alldata_snapshot = fetch_all_data()
+        mrack_snapshot = fetch_mrack_data()
+        tCDU_snapshot = fetch_tCDU_data()
 #       write_sensor_snapshot(alldata_snapshot)
         time.sleep(SERVER_POLL_INTERVAL_SECONDS)
