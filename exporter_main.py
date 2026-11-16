@@ -63,49 +63,49 @@ def build_sensor_to_gauge(metric_configs):
     return sensor_to_gauge
 
 # Prometheus metrics for mrack component temperatures
-valve_setting = Gauge(
+mrack_valve_setting = Gauge(
     "liquid_cooling_valve_setting_celsius",
     "coolong valve setting",
     ["sensor_name", "rack_name"]
 )
-environment_setting = Gauge(
+mrack_environment_setting = Gauge(
     "chassis_ambient_environment_celsius",
     "ambient environment sensors",
     ["sensor_name", "rack_name"],
 )
-power_meter_watts = Gauge(
+mrack_power_meter_watts = Gauge(
     "power_meter_watts",
     "power meter watts reading",
     ["sensor_name", "rack_name"],
 )
-power_meter_volts = Gauge(
+mrack_power_meter_volts = Gauge(
     "power_meter_volts",
     "power meter volts reading",
     ["sensor_name", "rack_name"],
 )
 
-power_meter_amps = Gauge(
+mrack_power_meter_amps = Gauge(
     "power_meter_amps",
     "power meter amps reading",
     ["sensor_name", "rack_name"],
 )
-power_meter_factors = Gauge(
+mrack_power_meter_factors = Gauge(
     "power_meter_factors",
     "power meter factors reading",
     ["sensor_name", "rack_name"],
 )
-pump_PWM = Gauge(
+mrack_pump_PWM = Gauge(
     "pump_PWM_values",
     "pump PWM values reading",
     ["sensor_name", "rack_name"],
 )
-pump_RPM = Gauge(
+mrack_pump_RPM = Gauge(
     "pump_RPM_values",
     "pump RPM values reading",
     ["sensor_name", "rack_name"],
 )
 
-power_state_HAC = Gauge(
+mrack_power_state_HAC = Gauge(
     "power_status_HAC",
     "power status of relay",
     ["sensor_name", "rack_name"]
@@ -123,7 +123,13 @@ mrack_leakage = Gauge(
     ["sensor_name", "rack_name"]
 )
 
-BMC_status = Gauge(
+mrack_pump_fail = Gauge(
+    "mrack_pump_fail",
+    "pump failure status (1: fail, 0: ok)",
+    ["sensor_name", "rack_name"]
+)
+
+mrack_BMC_status = Gauge(
     "mrack_BMC_status",
     "status reading from mrack BMC",
     ["sensor_name", "rack_name"]
@@ -160,21 +166,27 @@ tCDU_sensor_metric = Gauge(
     ["sensor_name", "rack_name"]
 )
 
+tCDU_pump_fail = Gauge(
+    "tCDU_pump_fail",
+    "pump failure status (1: fail, 0: ok)",
+    ["sensor_name", "rack_name"]
+)
+
 # Mapping sensor names to corresponding gauges
 metric_gauges = {
     # mRack metrics
-    "liquid_cooling_valve_setting_celsius": valve_setting,
-    "chassis_ambient_environment_celsius": environment_setting,
-    "power_meter_watts": power_meter_watts,
-    "power_meter_volts": power_meter_volts,
-    "power_meter_amps": power_meter_amps,
-    "power_meter_factors": power_meter_factors,
-    "pump_PWM_values": pump_PWM,
-    "pump_RPM_values": pump_RPM,
-    "power_status_HAC": power_state_HAC,
+    "liquid_cooling_valve_setting_celsius": mrack_valve_setting,
+    "chassis_ambient_environment_celsius": mrack_environment_setting,
+    "power_meter_watts": mrack_power_meter_watts,
+    "power_meter_volts": mrack_power_meter_volts,
+    "power_meter_amps": mrack_power_meter_amps,
+    "power_meter_factors": mrack_power_meter_factors,
+    "pump_PWM_values": mrack_pump_PWM,
+    "pump_RPM_values": mrack_pump_RPM,
+    "power_status_HAC": mrack_power_state_HAC,
     "mrack_tank_level": mrack_tank,
     "mrack_leakage_sensor": mrack_leakage,
-    "mrack_BMC_status": BMC_status,
+    "mrack_BMC_status": mrack_BMC_status,
 
     # tCDU metrics
     "tCDU_sensors_temperatures": tCDU_temperature,
@@ -214,52 +226,6 @@ EXPORTER_TIMEOUT_SECONDS = 15
 # _server_leakage_executor = None
 # _server_leakage_executor_lock = threading.Lock()
 
-
-# def _init_worker_session():
-#     _thread_local.session = requests.Session()
-
-
-# def _get_session():
-#     session = getattr(_thread_local, "session", None)
-#     if session is None:
-#         session = requests.Session()
-#         _thread_local.session = session
-#     return session
-
-
-# def _is_nonzero_value(value):
-#     if value is None:
-#         return False
-
-#     try:
-#         return float(value) != 0
-#     except (TypeError, ValueError):
-#         return False
-
-
-# def _get_server_executor():
-#     global _server_executor
-#     if _server_executor is None:
-#         with _server_executor_lock:
-#             if _server_executor is None:
-#                 _server_executor = ThreadPoolExecutor(
-#                     max_workers=10,
-#                     initializer=_init_worker_session,
-#                 )
-#     return _server_executor
-
-
-# def _get_server_leakage_executor():
-#     global _server_leakage_executor
-#     if _server_leakage_executor is None:
-#         with _server_leakage_executor_lock:
-#             if _server_leakage_executor is None:
-#                 _server_leakage_executor = ThreadPoolExecutor(
-#                     max_workers=10,
-#                     initializer=_init_worker_session,
-#                 )
-#     return _server_leakage_executor
-
 def fetch_mrack_data():
     nodes_data = {}
 
@@ -273,7 +239,6 @@ def fetch_mrack_data():
     return nodes_data
 
 def fetch_mrack_getall_data(device, sensor_to_gauge):
-    """單一 /getall 收集函式；回傳 snapshot data 和 logs list。"""
     logs = []
     ip = device["BMC_ip"]
     base_url = f"https://{ip}/redfish/v1/Chassis/mRack/Sensors/getall"
@@ -294,6 +259,9 @@ def fetch_mrack_getall_data(device, sensor_to_gauge):
         )
         response.raise_for_status()
         data = response.json()
+        pump_rpm = {}
+        pump_pwm = {}
+    
     except Exception as exc:
         logs.append(f"[ERROR] {ip} mRack /getall API error: {exc}")
         return device_entry, logs
@@ -318,23 +286,54 @@ def fetch_mrack_getall_data(device, sensor_to_gauge):
         received_sensor_names.add(sensor_name)
         sensor_value = item.get("Reading")
 
-        if sensor_name == "Peer_BMC_Status" and isinstance(sensor_value, str):
+        if sensor_name == "Peer_BMC_Status" :
             peer_status_values = {"00h": 0, "01h": 1, "02h": 2}
-            sensor_value = peer_status_values.get(sensor_value.strip().lower())
+            if isinstance(sensor_value, str):
+                sensor_value = peer_status_values.get(sensor_value.strip().lower())
             if sensor_value is None:
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
                 logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
-                continue
 
-        if sensor_value is None:
-            logs.append(f"[KEEP] {ip} {sensor_name} has no valid Reading; Gauge not updated")
-            continue
-        if not isinstance(sensor_value, (int, float)):
-            logs.append(f"[SKIP] {sensor_name} invalid value")
-            continue
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
 
-        device_entry["sensors"][sensor_name] = {"value": sensor_value}
-        gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
-        logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+        elif sensor_name.startswith("Sensor"):
+            if sensor_value is None or not isinstance(sensor_value, (int, float)):
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+
+        elif sensor_name.startswith("RPM_P") or sensor_name.startswith("POW_P") or sensor_name.startswith("PWM_P"):
+            if sensor_value is None or not isinstance(sensor_value, (int, float)):
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+                if sensor_name.startswith("RPM_P"):
+                    pump_rpm[sensor_name.replace("RPM_P", "")] = sensor_value
+                elif sensor_name.startswith("PWM_P"):
+                    pump_pwm[sensor_name.replace("PWM_P", "")] = sensor_value
+
+        else :
+            if sensor_value is None or not isinstance(sensor_value, (int, float)):
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+
+    for idx in set(pump_rpm) | set(pump_pwm):
+        rpm = pump_rpm.get(idx)
+        pwm = pump_pwm.get(idx)
+        fail = 1 if rpm is not None and pwm is not None and rpm < 100 and pwm != 0 else 0
+        mrack_pump_fail.labels(sensor_name=f"Pump_{idx}", rack_name=device["rack_name"]).set(fail)
+
+#        device_entry["sensors"][sensor_name] = {"value": sensor_value}
 
     # 找出本次成功回應中完全沒有出現的已設定 sensor；不呼叫 set()，Gauge 保留現值。
     for sensor_name in sensor_to_gauge:
@@ -356,7 +355,6 @@ def fetch_tCDU_data():
     return tCDU_data
 
 def fetch_tCDU_getall_data(device, sensor_to_gauge):
-    """單一 /getall 收集函式；回傳 snapshot data 和 logs list。"""
     logs = []
     ip = device["BMC_ip"]
     base_url = f"https://{ip}/redfish/v1/Chassis/CDU/Sensors/GetAll"
@@ -377,6 +375,8 @@ def fetch_tCDU_getall_data(device, sensor_to_gauge):
         )
         response.raise_for_status()
         data = response.json()
+        pump_rpm = {}
+        pump_pwm = {}
     except Exception as exc:
         logs.append(f"[ERROR] {ip} tCDU /getall API error: {exc}")
         return device_entry, logs
@@ -401,16 +401,42 @@ def fetch_tCDU_getall_data(device, sensor_to_gauge):
         received_sensor_names.add(sensor_name)
         sensor_value = item.get("Reading")
 
-        if sensor_value is None:
-            logs.append(f"[KEEP] {ip} {sensor_name} has no valid Reading; Gauge not updated")
-            continue
-        if not isinstance(sensor_value, (int, float)):
-            logs.append(f"[SKIP] {sensor_name} invalid value")
-            continue
+        if sensor_name.startswith("Sensor"):
+            if sensor_value is None or not isinstance(sensor_value, (int, float)):
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+                
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
 
-        device_entry["sensors"][sensor_name] = {"value": sensor_value}
-        gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
-        logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+        elif sensor_name.startswith("RPM_P") or sensor_name.startswith("POW_P") or sensor_name.startswith("PWM_P"):
+            if sensor_value is None or not isinstance(sensor_value, (int, float)):
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+                if sensor_name.startswith("RPM_P"):
+                    pump_rpm[sensor_name.replace("RPM_P", "")] = sensor_value
+                elif sensor_name.startswith("PWM_P"):
+                    pump_pwm[sensor_name.replace("PWM_P", "")] = sensor_value
+
+
+        else :
+            if sensor_value is None or not isinstance(sensor_value, (int, float)):
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+
+    for idx in set(pump_rpm) | set(pump_pwm):
+        rpm = pump_rpm.get(idx)
+        pwm = pump_pwm.get(idx)
+        fail = 1 if rpm is not None and pwm is not None and rpm < 100 and pwm != 0 else 0
+        tCDU_pump_fail.labels(sensor_name=f"Pump_{idx}", rack_name=device["rack_name"]).set(fail)
 
     # 找出本次成功回應中完全沒有出現的已設定 sensor；不呼叫 set()，Gauge 保留現值。
     for sensor_name in sensor_to_gauge:
@@ -439,20 +465,12 @@ def write_sensor_snapshot(nodes_data):
     except Exception as exc:
         print(f"[ERROR] Failed to write sensor snapshot: {exc}")
 
-
-# def poll_server_leakage_forever():
-#     while True:
-#         fetch_server_leakage_data()
-#         time.sleep(SERVER_LEAKAGE_POLL_INTERVAL_SECONDS)
-
-
 if __name__ == '__main__':
-    start_http_server(5000, addr="0.0.0.0")  # Prometheus get data from it
-#    leakage_thread = threading.Thread(target=poll_server_leakage_forever, daemon=True)
-#    leakage_thread.start()
+    start_http_server(5000, addr="0.0.0.0")  
 
     while True:
         mrack_snapshot = fetch_mrack_data()
         tCDU_snapshot = fetch_tCDU_data()
 #       write_sensor_snapshot(alldata_snapshot)
         time.sleep(SERVER_POLL_INTERVAL_SECONDS)
+
