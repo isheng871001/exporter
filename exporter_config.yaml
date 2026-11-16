@@ -75,6 +75,12 @@ devices:
           - "BMC_CPU_Util"
           - "BMC_Mem_Util"
           - "Peer_BMC_Status"
+      
+      mrack_pump_fail:
+        sensors:
+          - "Pump_1"
+          - "Pump_2"
+          - "Pump_3"
 
   - name: "tCDU"
     rack_name: "F20"
@@ -151,3 +157,9 @@ devices:
           - "Status_PSU2"
           - "BMC_CPU_Util"
           - "BMC_Mem_Util"
+      
+      tCDU_pump_fail:
+        sensors:
+          - "Pump_1"
+          - "Pump_2"
+
