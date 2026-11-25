@@ -74,39 +74,39 @@ mrack_environment_setting = Gauge(
     ["sensor_name", "rack_name"],
 )
 mrack_power_meter_watts = Gauge(
-    "power_meter_watts",
+    "mrack_power_meter_watts",
     "power meter watts reading",
     ["sensor_name", "rack_name"],
 )
 mrack_power_meter_volts = Gauge(
-    "power_meter_volts",
+    "mrack_power_meter_volts",
     "power meter volts reading",
     ["sensor_name", "rack_name"],
 )
 
 mrack_power_meter_amps = Gauge(
-    "power_meter_amps",
+    "mrack_power_meter_amps",
     "power meter amps reading",
     ["sensor_name", "rack_name"],
 )
 mrack_power_meter_factors = Gauge(
-    "power_meter_factors",
+    "mrack_power_meter_factors",
     "power meter factors reading",
     ["sensor_name", "rack_name"],
 )
 mrack_pump_PWM = Gauge(
-    "pump_PWM_values",
+    "mrack_pump_PWM_values",
     "pump PWM values reading",
     ["sensor_name", "rack_name"],
 )
 mrack_pump_RPM = Gauge(
-    "pump_RPM_values",
+    "mrack_pump_RPM_values",
     "pump RPM values reading",
     ["sensor_name", "rack_name"],
 )
 
 mrack_power_state_HAC = Gauge(
-    "power_status_HAC",
+    "mrack_power_status_HAC",
     "power status of relay",
     ["sensor_name", "rack_name"]
 )
@@ -177,13 +177,13 @@ metric_gauges = {
     # mRack metrics
     "liquid_cooling_valve_setting_celsius": mrack_valve_setting,
     "chassis_ambient_environment_celsius": mrack_environment_setting,
-    "power_meter_watts": mrack_power_meter_watts,
-    "power_meter_volts": mrack_power_meter_volts,
-    "power_meter_amps": mrack_power_meter_amps,
-    "power_meter_factors": mrack_power_meter_factors,
-    "pump_PWM_values": mrack_pump_PWM,
-    "pump_RPM_values": mrack_pump_RPM,
-    "power_status_HAC": mrack_power_state_HAC,
+    "mrack_power_meter_watts": mrack_power_meter_watts,
+    "mrack_power_meter_volts": mrack_power_meter_volts,
+    "mrack_power_meter_amps": mrack_power_meter_amps,
+    "mrack_power_meter_factors": mrack_power_meter_factors,
+    "mrack_pump_PWM_values": mrack_pump_PWM,
+    "mrack_pump_RPM_values": mrack_pump_RPM,
+    "mrack_power_status_HAC": mrack_power_state_HAC,
     "mrack_tank_level": mrack_tank,
     "mrack_leakage_sensor": mrack_leakage,
     "mrack_BMC_status": mrack_BMC_status,
@@ -205,26 +205,10 @@ tCDU_sensor_to_gauge = build_sensor_to_gauge(tCDU_device["metrics"])
 
 session = requests.Session()
 
-# Track consecutive PSU and chassis status fetch failures to avoid immediately marking sensors as failed
-# status_failures = {}
-
 SERVER_POLL_INTERVAL_SECONDS = 60
 SERVER_LEAKAGE_POLL_INTERVAL_SECONDS = 10
 EXPORTER_TIMEOUT_SECONDS = 15
-# SERVER_LEAKAGE_SENSORS = [
-#     "Chassis_Leakage",
-#     "Node_Leakage",
-#     "GPU_Node_Leakage",
-# ]
 
-# server_leakage_state = {}
-# server_leakage_lock = threading.Lock()
-
-# _thread_local = threading.local()
-# _server_executor = None
-# _server_executor_lock = threading.Lock()
-# _server_leakage_executor = None
-# _server_leakage_executor_lock = threading.Lock()
 
 def fetch_mrack_data():
     nodes_data = {}
@@ -401,7 +385,19 @@ def fetch_tCDU_getall_data(device, sensor_to_gauge):
         received_sensor_names.add(sensor_name)
         sensor_value = item.get("Reading")
 
-        if sensor_name.startswith("Sensor"):
+        if sensor_name in {"Peer_BMC_Status", "Status_VFD1", "Status_VFD2", "Status_PSU1","Status_PSU1" } :
+            status_values = {"00h": 0, "01h": 1, "02h": 2}
+            if isinstance(sensor_value, str):
+                sensor_value = status_values.get(sensor_value.strip().lower())
+            if sensor_value is None:
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
+                logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
+
+            else :
+                gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(sensor_value)
+                logs.append(f"[OK] {ip} {sensor_name} = {sensor_value}")
+
+        elif sensor_name.startswith("Sensor"):
             if sensor_value is None or not isinstance(sensor_value, (int, float)):
                 gauge.labels(sensor_name=sensor_name, rack_name=device["rack_name"]).set(0)
                 logs.append(f"[SKIP] {ip} {sensor_name} invalid status value")
